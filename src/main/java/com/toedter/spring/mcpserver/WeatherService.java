@@ -43,19 +43,19 @@ public class WeatherService {
 	 * @return The current weather for the given location
 	 * @throws RestClientException if the request fails
 	 */
-	@Tool(description = "Get the current weather forecast for specific latitude/longitude")
-	public String getWeatherForecastByLocation(double latitude, double longitude) {
+	@Tool(description = "Get the current weather forecast for specific latitude/longitude, units are 'metric' or 'imperial', default is 'metric'.")
+	public String getWeatherForecastByLocation(double latitude, double longitude, String units) {
 
 		System.out.println(latitude + "," + longitude);
         return restClient.get()
-            .uri("/current?latitude={latitude}&longitude={longitude}", latitude, longitude)
+            .uri("/current?latitude={latitude}&longitude={longitude}&units={units}", latitude, longitude, units)
             .retrieve()
             .body(String.class);
 	}
 
 	public static void main(String[] args) {
 		WeatherService client = new WeatherService();
-		System.out.println(client.getWeatherForecastByLocation(47.6062, -122.3321));
+		System.out.println(client.getWeatherForecastByLocation(47.6062, -122.3321, "metric"));
 	}
 
 }
