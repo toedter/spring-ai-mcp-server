@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "weather-x" : {
+      "command": "java",
+      "args": [
+        "-jar",
+        "D:\\dev\\git\\spring-ai-mcp-server\\build\\libs\\spring-ai-mcp-server-0.0.1-SNAPSHOT.jar"
+      ]
+    }
+  }
+}
