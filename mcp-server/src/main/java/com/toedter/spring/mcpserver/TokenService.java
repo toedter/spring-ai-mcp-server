@@ -47,7 +47,7 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <pre>
  * {
- *   "sub": "john@doe.com",
+ *   "sub": "j***@doe.com",
  *   "act": {
  *     "sub": "mcp-server-client",
  *     "act": { "sub": "mcp-client-client" }
@@ -232,9 +232,24 @@ public class TokenService {
 
     Object act = claims.get("act");
     Map<String, Object> result = new LinkedHashMap<>();
-    result.put("sub", claims.get("sub"));
+    result.put("sub", maskEmail((String) claims.get("sub")));
     result.put("act", act);
     return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(result);
+  }
+
+  /**
+   * Masks an email address so the end user's identity isn't readable in tool output, e.g. {@code
+   * john@doe.com} becomes {@code j***@doe.com}.
+   */
+  private static String maskEmail(String email) {
+    if (email == null) {
+      return null;
+    }
+    int at = email.indexOf('@');
+    if (at <= 0) {
+      return "***";
+    }
+    return email.charAt(0) + "***" + email.substring(at);
   }
 
   private record CachedToken(String accessToken, Instant expiry) {
