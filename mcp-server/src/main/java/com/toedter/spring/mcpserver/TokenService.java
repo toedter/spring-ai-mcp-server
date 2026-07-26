@@ -17,9 +17,12 @@ package com.toedter.spring.mcpserver;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.mcp.annotation.McpTool;
@@ -65,6 +68,7 @@ public class TokenService {
   private static final String TOKEN_EXCHANGE_GRANT_TYPE =
       "urn:ietf:params:oauth:grant-type:token-exchange";
   private static final String ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
+  private static final String SCOPE = "scope";
 
   private static final Logger log = LoggerFactory.getLogger(TokenService.class);
 
@@ -138,12 +142,16 @@ public class TokenService {
     form.add("client_id", clientId);
     form.add("client_secret", clientSecret);
     // Without an explicit scope, the authorization server falls back to
-    // authorizing all of the subject token's scopes (openid, profile,
-    // mcp.tools from the upstream user/mcp-client exchange), which fails
-    // with invalid_scope because mcp-server-client is only registered for
-    // mcp.tools. Requesting the scope explicitly limits validation to
-    // what this client actually needs and is registered for.
-    form.add("scope", scope);
+    // authorizing all of the subject token's scopes, which fails with
+    // invalid_scope as soon as the subject carries a scope mcp-server-client
+    // isn't registered for (e.g. openid, profile). Requesting only the
+    // intersection of "what the subject token actually has" and "what this
+    // client is registered for" avoids that failure while never widening the
+    // subject's own access.
+    String requestedScope = intersectScopes(subjectAccessToken);
+    if (requestedScope != null) {
+      form.add(SCOPE, requestedScope);
+    }
 
     Map<String, Object> response;
     try {
@@ -180,7 +188,7 @@ public class TokenService {
     form.add("grant_type", "client_credentials");
     form.add("client_id", clientId);
     form.add("client_secret", clientSecret);
-    form.add("scope", scope);
+    form.add(SCOPE, scope);
 
     Map<String, Object> response;
     try {
@@ -222,22 +230,63 @@ public class TokenService {
   }
 
   /**
+   * Restricts the token-exchange {@code scope} request to the intersection of {@code
+   * subjectAccessToken}'s own {@code scope} claim and mcp-server's own registered scopes, so the
+   * exchange never requests (and thus never risks being granted) a scope the subject token didn't
+   * already carry. Returns {@code null} if the subject token has no {@code scope} claim, in which
+   * case the authorization server falls back to its own default scope resolution.
+   */
+  private String intersectScopes(String subjectAccessToken) {
+    Set<String> subjectScopes;
+    try {
+      subjectScopes = extractScopes(decodeClaims(subjectAccessToken));
+    } catch (Exception _) {
+      // Not a decodable JWT (e.g. an opaque token): fall back to requesting
+      // no explicit scope rather than failing the exchange.
+      return null;
+    }
+    if (subjectScopes.isEmpty()) {
+      return null;
+    }
+    Set<String> ownScopes = new LinkedHashSet<>(Arrays.asList(scope.split(" ")));
+    subjectScopes.retainAll(ownScopes);
+    return subjectScopes.isEmpty() ? null : String.join(" ", subjectScopes);
+  }
+
+  private static Set<String> extractScopes(Map<String, Object> claims) {
+    Object rawScope = claims.get(SCOPE);
+    if (rawScope instanceof Iterable<?> scopes) {
+      Set<String> result = new LinkedHashSet<>();
+      scopes.forEach(s -> result.add(String.valueOf(s)));
+      return result;
+    }
+    if (rawScope instanceof String scopeString && !scopeString.isBlank()) {
+      return new LinkedHashSet<>(Arrays.asList(scopeString.split(" ")));
+    }
+    return Set.of();
+  }
+
+  /**
    * Decodes {@code jwt} and returns only the {@code sub} claim and the chain of actor subjects from
    * the (possibly nested) {@code act} claim — never the raw token, scopes, issuer, or expiry, since
    * this projection is returned as tool output the model can read.
    */
-  @SuppressWarnings("unchecked")
   private String describeActorChain(String jwt) {
-    String[] parts = jwt.split("\\.");
-    byte[] payload = Base64.getUrlDecoder().decode(parts[1]);
-    Map<String, Object> claims = objectMapper.readValue(payload, Map.class);
+    Map<String, Object> claims = decodeClaims(jwt);
 
     Object act = claims.get("act");
     Map<String, Object> result = new LinkedHashMap<>();
     result.put("sub", maskEmail((String) claims.get("sub")));
-    result.put("scope", claims.get("scope"));
+    result.put(SCOPE, claims.get(SCOPE));
     result.put("act", act);
     return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(result);
+  }
+
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> decodeClaims(String jwt) {
+    String[] parts = jwt.split("\\.");
+    byte[] payload = Base64.getUrlDecoder().decode(parts[1]);
+    return objectMapper.readValue(payload, Map.class);
   }
 
   /**
@@ -252,7 +301,7 @@ public class TokenService {
     if (at <= 0) {
       return "***";
     }
-    return email.charAt(0) + "***" + email.substring(at);
+    return email.substring(0, at) + "@***";
   }
 
   private record CachedToken(String accessToken, Instant expiry) {

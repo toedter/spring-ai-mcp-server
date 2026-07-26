@@ -2,15 +2,20 @@ package com.toedter.spring.authorizationserver;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.security.autoconfigure.SecurityProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
+import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.core.oidc.endpoint.OidcParameterNames;
 import org.springframework.security.oauth2.server.authorization.InMemoryOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
@@ -44,14 +49,18 @@ public class AuthorizationServerApplication {
     UserDetails johnDoe =
         User.withUsername("john@doe.com")
             .password("{noop}john")
-            .authorities(
-                "SCOPE_mcp.tools",
-                "SCOPE_mcp.tools.movies",
-                "SCOPE_mcp.tools.weather",
-                "SCOPE_mcp.tools.diagnostics")
+            .authorities("SCOPE_mcp.tools", "SCOPE_mcp.tools.movies", "SCOPE_mcp.tools.diagnostics")
             .build();
 
-    return new InMemoryUserDetailsManager(defaultUser, johnDoe);
+    // Demo end-user for the Angular chatbot: jane@doe.com / jane
+    UserDetails janeDoe =
+        User.withUsername("jane@doe.com")
+            .password("{noop}jane")
+            .authorities(
+                "SCOPE_mcp.tools", "SCOPE_mcp.tools.weather", "SCOPE_mcp.tools.diagnostics")
+            .build();
+
+    return new InMemoryUserDetailsManager(defaultUser, johnDoe, janeDoe);
   }
 
   /**
@@ -64,6 +73,19 @@ public class AuthorizationServerApplication {
     return new InMemoryOAuth2AuthorizationService();
   }
 
+  /**
+   * Grant types where the principal represents an actual end user (directly, or as the {@code
+   * subject} of a token-exchange delegation chain) rather than a client authenticating for itself.
+   * Only for these does {@link #narrowMcpToolsScopeToPrincipalAuthorities} make sense:
+   * client-credentials principals carry no {@code SCOPE_mcp.tools*} authorities at all, so
+   * narrowing against them would strip every mcp.tools scope from service tokens.
+   */
+  private static final Set<AuthorizationGrantType> USER_SCOPED_GRANT_TYPES =
+      Set.of(
+          AuthorizationGrantType.AUTHORIZATION_CODE,
+          AuthorizationGrantType.REFRESH_TOKEN,
+          AuthorizationGrantType.TOKEN_EXCHANGE);
+
   @Bean
   public OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer() {
     return context -> {
@@ -71,6 +93,7 @@ public class AuthorizationServerApplication {
       // The ID token must keep the client-id audience so the SPA can validate it.
       if (OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType())) {
         context.getClaims().audience(Collections.singletonList("mcp-audience"));
+        narrowMcpToolsScopeToPrincipalAuthorities(context);
 
         // RFC 8693 Token Exchange (delegation use case): stamp the
         // "act" (actor) claim onto the exchanged token, e.g.
@@ -98,9 +121,52 @@ public class AuthorizationServerApplication {
               .claim("given_name", "John")
               .claim("family_name", "Doe")
               .claim("email", "john@doe.com");
+        } else if ("jane@doe.com".equals(username)) {
+          context
+              .getClaims()
+              .claim("name", "Jane Doe")
+              .claim("given_name", "Jane")
+              .claim("family_name", "Doe")
+              .claim("email", "jane@doe.com");
         }
       }
     };
+  }
+
+  /**
+   * Restricts the {@code scope} claim to the intersection of the token's authorized {@code
+   * mcp.tools*} scopes and the authenticated principal's own {@code SCOPE_mcp.tools*} authorities,
+   * so a user like John (only {@code SCOPE_mcp.tools.movies}) can never end up with {@code
+   * mcp.tools.weather} in a token just because the client (e.g. mcp-chatbot-client) happens to be
+   * registered for it. Spring Authorization Server's built-in scope validation only checks
+   * requested scopes against the <em>client's</em> registration, not the end user's own
+   * authorities, so this has to be enforced explicitly here. Non-{@code mcp.tools} scopes (e.g.
+   * {@code openid}, {@code profile}) are left untouched. For token-exchange delegation, {@code
+   * OAuth2TokenExchangeCompositeAuthenticationToken} carries the original end user's authorities at
+   * every hop, so the same narrowing applies uniformly across the whole actor chain.
+   */
+  private static void narrowMcpToolsScopeToPrincipalAuthorities(JwtEncodingContext context) {
+    if (!USER_SCOPED_GRANT_TYPES.contains(context.getAuthorizationGrantType())) {
+      return;
+    }
+    Authentication principal = context.getPrincipal();
+    Set<String> authorizedScopes = context.getAuthorizedScopes();
+    if (principal == null || authorizedScopes.isEmpty()) {
+      return;
+    }
+
+    Set<String> principalAuthorities = new LinkedHashSet<>();
+    for (GrantedAuthority authority : principal.getAuthorities()) {
+      principalAuthorities.add(authority.getAuthority());
+    }
+
+    Set<String> narrowedScopes = new LinkedHashSet<>();
+    for (String scope : authorizedScopes) {
+      if (!scope.startsWith("mcp.tools") || principalAuthorities.contains("SCOPE_" + scope)) {
+        narrowedScopes.add(scope);
+      }
+    }
+    context.getClaims().claim(OAuth2ParameterNames.SCOPE, narrowedScopes);
   }
 
   /**

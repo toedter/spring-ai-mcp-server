@@ -1,7 +1,12 @@
 package com.toedter.spring.mcpclient;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -39,11 +44,14 @@ public class TokenExchangeService {
   private static final String TOKEN_EXCHANGE_GRANT_TYPE =
       "urn:ietf:params:oauth:grant-type:token-exchange";
   private static final String ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
+  private static final String SCOPE = "scope";
 
   private final RestClient restClient = RestClient.create();
+  private final ObjectMapper objectMapper = new ObjectMapper();
   private final String tokenUri;
   private final String clientId;
   private final String clientSecret;
+  private final String scope;
 
   /**
    * Exchanged tokens are cached per (server, subject token) to avoid a round-trip per tool call.
@@ -53,10 +61,12 @@ public class TokenExchangeService {
   public TokenExchangeService(
       @Value("${mcp.service-token.token-uri}") String tokenUri,
       @Value("${mcp.service-token.client-id}") String clientId,
-      @Value("${mcp.service-token.client-secret}") String clientSecret) {
+      @Value("${mcp.service-token.client-secret}") String clientSecret,
+      @Value("${mcp.service-token.scope}") String scope) {
     this.tokenUri = tokenUri;
     this.clientId = clientId;
     this.clientSecret = clientSecret;
+    this.scope = scope;
   }
 
   /**
@@ -87,6 +97,17 @@ public class TokenExchangeService {
     form.add("actor_token_type", ACCESS_TOKEN_TYPE);
     form.add("client_id", clientId);
     form.add("client_secret", clientSecret);
+    // Without an explicit scope, the authorization server falls back to
+    // authorizing all of the subject token's scopes, which fails with
+    // invalid_scope as soon as the end user's token carries a scope
+    // mcp-client-client isn't registered for. Requesting only the
+    // intersection of "what the subject token actually has" and "what this
+    // client is registered for" avoids that failure while never widening the
+    // subject's own access.
+    String requestedScope = intersectScopes(subjectAccessToken);
+    if (requestedScope != null) {
+      form.add(SCOPE, requestedScope);
+    }
 
     Map<String, Object> response =
         restClient
@@ -106,6 +127,50 @@ public class TokenExchangeService {
     // Refresh a little early to avoid races with in-flight requests.
     Instant expiry = Instant.now().plusSeconds(Math.max(0, expiresIn.longValue() - 30));
     return new CachedToken(accessToken, expiry);
+  }
+
+  /**
+   * Restricts the token-exchange {@code scope} request to the intersection of {@code
+   * subjectAccessToken}'s own {@code scope} claim and mcp-client's own registered scopes, so the
+   * exchange never requests (and thus never risks being granted) a scope the subject token didn't
+   * already carry. Returns {@code null} if the subject token has no {@code scope} claim, in which
+   * case the authorization server falls back to its own default scope resolution.
+   */
+  private String intersectScopes(String subjectAccessToken) {
+    Set<String> subjectScopes = extractScopes(decodeClaims(subjectAccessToken));
+    if (subjectScopes.isEmpty()) {
+      return null;
+    }
+    Set<String> ownScopes = new LinkedHashSet<>(Arrays.asList(scope.split(" ")));
+    subjectScopes.retainAll(ownScopes);
+    return subjectScopes.isEmpty() ? null : String.join(" ", subjectScopes);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Set<String> extractScopes(Map<String, Object> claims) {
+    Object rawScope = claims.get(SCOPE);
+    if (rawScope instanceof Iterable<?> scopes) {
+      Set<String> result = new LinkedHashSet<>();
+      scopes.forEach(s -> result.add(String.valueOf(s)));
+      return result;
+    }
+    if (rawScope instanceof String scopeString && !scopeString.isBlank()) {
+      return new LinkedHashSet<>(Arrays.asList(scopeString.split(" ")));
+    }
+    return Set.of();
+  }
+
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> decodeClaims(String jwt) {
+    try {
+      String[] parts = jwt.split("\\.");
+      byte[] payload = Base64.getUrlDecoder().decode(parts[1]);
+      return objectMapper.readValue(payload, Map.class);
+    } catch (Exception _) {
+      // Not a decodable JWT (e.g. an opaque token in tests): fall back to
+      // requesting no explicit scope rather than failing the exchange.
+      return Map.of();
+    }
   }
 
   private record CacheKey(String serverName, String subjectAccessToken) {}

@@ -1,4 +1,4 @@
-package com.toedter.spring.mcpclient;
+package com.toedter.spring.mcpserver;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -11,23 +11,21 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Verifies delegated (exchanged) tokens are cached per {@code (serverName, subjectAccessToken)}
- * rather than globally, so the same user's exchanged token is never reused across MCP server
- * connections.
+ * Verifies that {@link TokenService#exchangeToken(String)} only ever requests the intersection of
+ * the subject token's own {@code scope} claim and mcp-server's own registered scopes, so a token
+ * exchange never risks widening the subject's access.
  */
-class TokenExchangeServiceTest {
+class TokenServiceTest {
 
   private HttpServer server;
-  private final AtomicInteger requestCount = new AtomicInteger();
   private final AtomicReference<String> lastRequestBody = new AtomicReference<>();
-  private TokenExchangeService tokenExchangeService;
+  private TokenService tokenService;
 
   @BeforeEach
   void startFakeTokenEndpoint() throws IOException {
@@ -35,10 +33,8 @@ class TokenExchangeServiceTest {
     server.createContext(
         "/oauth2/token",
         exchange -> {
-          requestCount.incrementAndGet();
           lastRequestBody.set(readRequestBody(exchange));
-          String body =
-              "{\"access_token\":\"exchanged-" + requestCount.get() + "\",\"expires_in\":300}";
+          String body = "{\"access_token\":\"exchanged-token\",\"expires_in\":300}";
           byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().add("Content-Type", "application/json");
           exchange.sendResponseHeaders(200, bytes.length);
@@ -48,9 +44,8 @@ class TokenExchangeServiceTest {
     server.start();
 
     String tokenUri = "http://localhost:" + server.getAddress().getPort() + "/oauth2/token";
-    tokenExchangeService =
-        new TokenExchangeService(
-            tokenUri, "client-id", "client-secret", "mcp.tools mcp.tools.weather");
+    tokenService =
+        new TokenService(tokenUri, "client-id", "client-secret", "mcp.tools mcp.tools.weather");
   }
 
   @AfterEach
@@ -59,34 +54,15 @@ class TokenExchangeServiceTest {
   }
 
   @Test
-  void cachesExchangedTokenPerServerNameForTheSameSubjectToken() {
-    String userToken = "user-access-token";
-    String actorToken = "actor-access-token";
-
-    String exchangedForServerA1 =
-        tokenExchangeService.exchangeUserToken("server-a", userToken, actorToken);
-    String exchangedForServerA2 =
-        tokenExchangeService.exchangeUserToken("server-a", userToken, actorToken);
-    String exchangedForServerB =
-        tokenExchangeService.exchangeUserToken("server-b", userToken, actorToken);
-
-    // Same server + same subject token: cached, one round-trip.
-    assertThat(exchangedForServerA1).isEqualTo(exchangedForServerA2);
-    // Same subject token but a different server: independent delegated
-    // token, never reused across servers.
-    assertThat(exchangedForServerB).isNotEqualTo(exchangedForServerA1);
-    assertThat(requestCount.get()).isEqualTo(2);
-  }
-
-  @Test
   void requestsOnlyTheIntersectionOfSubjectScopesAndOwnRegisteredScopes() {
-    // Subject token (the end user's) carries mcp.tools, mcp.tools.weather AND
-    // mcp.tools.movies, but this TokenExchangeService is only configured with
-    // "mcp.tools mcp.tools.weather" (see startFakeTokenEndpoint) -- the
-    // movies scope must not be requested even though the subject has it.
-    String userToken = fakeJwt("mcp.tools", "mcp.tools.weather", "mcp.tools.movies");
+    // Subject token (already delegated by mcp-client) carries mcp.tools,
+    // mcp.tools.weather AND mcp.tools.movies, but mcp-server's own
+    // configuration (see startFakeTokenEndpoint) only has "mcp.tools
+    // mcp.tools.weather" -- the movies scope must never be requested even
+    // though the subject token has it.
+    String subjectToken = fakeJwt("mcp.tools", "mcp.tools.weather", "mcp.tools.movies");
 
-    tokenExchangeService.exchangeUserToken("server-a", userToken, "actor-access-token");
+    tokenService.exchangeToken(subjectToken);
 
     Map<String, String> form = parseForm(lastRequestBody.get());
     assertThat(form.get("scope")).isEqualTo("mcp.tools mcp.tools.weather");
@@ -94,7 +70,7 @@ class TokenExchangeServiceTest {
 
   @Test
   void omitsScopeParameterWhenSubjectTokenIsNotADecodableJwt() {
-    tokenExchangeService.exchangeUserToken("server-a", "opaque-user-token", "actor-access-token");
+    tokenService.exchangeToken("opaque-subject-token");
 
     Map<String, String> form = parseForm(lastRequestBody.get());
     assertThat(form).doesNotContainKey("scope");
