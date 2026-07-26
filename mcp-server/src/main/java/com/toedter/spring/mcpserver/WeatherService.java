@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.mcp.annotation.McpTool;
 import org.springframework.ai.mcp.annotation.McpToolParam;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -56,6 +57,7 @@ public class WeatherService {
    * @param unit Preferred temperature unit, "celsius" or "fahrenheit"
    * @return The current weather for the given location
    */
+  @PreAuthorize("hasAuthority('SCOPE_mcp.tools.weather')")
   @McpTool(
       name = "get_weather_forecast_by_location",
       description = "Get the current weather forecast for a specific location.",

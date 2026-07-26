@@ -26,6 +26,7 @@ import org.springframework.ai.mcp.annotation.McpTool;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -101,6 +102,7 @@ public class TokenService {
    * the raw token itself) so RFC 8693 delegation can be demonstrated without exposing token
    * material to the model.
    */
+  @PreAuthorize("hasAuthority('SCOPE_mcp.tools.diagnostics')")
   @McpTool(
       name = "get_mcp_server_access_token",
       description =

@@ -44,7 +44,11 @@ public class AuthorizationServerApplication {
     UserDetails johnDoe =
         User.withUsername("john@doe.com")
             .password("{noop}john")
-            .authorities("SCOPE_mcp.tools")
+            .authorities(
+                "SCOPE_mcp.tools",
+                "SCOPE_mcp.tools.movies",
+                "SCOPE_mcp.tools.weather",
+                "SCOPE_mcp.tools.diagnostics")
             .build();
 
     return new InMemoryUserDetailsManager(defaultUser, johnDoe);

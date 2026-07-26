@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.mcp.annotation.McpTool;
 import org.springframework.ai.mcp.annotation.McpToolParam;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -56,6 +57,7 @@ public class MovieService {
    * @param pageSize page size
    * @return The ranked list of movies
    */
+  @PreAuthorize("hasAuthority('SCOPE_mcp.tools.movies')")
   @McpTool(
       name = "get_top_ranked_movies",
       description = "Get the top-ranked movies from IMDb.",

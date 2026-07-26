@@ -19,7 +19,7 @@ export const authConfig: AuthConfig = {
   // Public client registered in the authorization server (PKCE, no secret).
   clientId: 'mcp-chatbot-client',
   responseType: 'code',
-  scope: 'openid profile mcp.tools',
+  scope: 'openid profile mcp.tools mcp.tools.movies mcp.tools.weather mcp.tools.diagnostics',
   // Local demo runs over http.
   requireHttps: false,
   strictDiscoveryDocumentValidation: false,

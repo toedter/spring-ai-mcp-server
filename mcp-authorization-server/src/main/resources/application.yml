@@ -31,6 +31,9 @@ spring:
                 - "openid"
                 - "profile"
                 - "mcp.tools"
+                - "mcp.tools.movies"
+                - "mcp.tools.weather"
+                - "mcp.tools.diagnostics"
             require-authorization-consent: true
           mcp-server-client:
             registration:
@@ -47,6 +50,9 @@ spring:
                 - "urn:ietf:params:oauth:grant-type:token-exchange"
               scopes:
                 - "mcp.tools"
+                - "mcp.tools.movies"
+                - "mcp.tools.weather"
+                - "mcp.tools.diagnostics"
             require-authorization-consent: true
           mcp-chatbot-client:
             registration:
@@ -66,5 +72,8 @@ spring:
                 - "openid"
                 - "profile"
                 - "mcp.tools"
+                - "mcp.tools.movies"
+                - "mcp.tools.weather"
+                - "mcp.tools.diagnostics"
             require-authorization-consent: false
             require-proof-key: true
