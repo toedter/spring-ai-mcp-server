@@ -235,6 +235,7 @@ public class TokenService {
     Object act = claims.get("act");
     Map<String, Object> result = new LinkedHashMap<>();
     result.put("sub", maskEmail((String) claims.get("sub")));
+    result.put("scope", claims.get("scope"));
     result.put("act", act);
     return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(result);
   }

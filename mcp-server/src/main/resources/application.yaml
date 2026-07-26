@@ -9,7 +9,7 @@ mcp:
     token-uri: http://localhost:9000/oauth2/token
     client-id: mcp-server-client
     client-secret: mcp-server-secret
-    scope: mcp.tools
+    scope: mcp.tools mcp.tools.movies mcp.tools.weather mcp.tools.diagnostics
 
 spring:
   ai:
