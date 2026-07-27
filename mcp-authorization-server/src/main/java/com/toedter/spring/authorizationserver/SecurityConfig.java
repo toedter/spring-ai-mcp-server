@@ -10,7 +10,11 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.oauth2.server.authorization.OAuth2AuthorizationServerConfigurer;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
+import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
+import org.springframework.security.web.savedrequest.RequestCache;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher;
+import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -55,9 +59,25 @@ public class SecurityConfig {
   public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
     http.authorizeHttpRequests(authorize -> authorize.anyRequest().authenticated())
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+        .requestCache(cache -> cache.requestCache(requestCache()))
         .formLogin(Customizer.withDefaults());
 
     return http.build();
+  }
+
+  /**
+   * Chrome periodically probes /.well-known/appspecific/com.chrome.devtools.json when DevTools is
+   * open. If that request hits an unauthenticated session, the default request cache saves it and
+   * redirects there after login instead of back to the real OAuth2 authorization request. Exclude
+   * it (and any other well-known path) from being cached.
+   */
+  @Bean
+  public RequestCache requestCache() {
+    HttpSessionRequestCache requestCache = new HttpSessionRequestCache();
+    requestCache.setRequestMatcher(
+        new NegatedRequestMatcher(
+            PathPatternRequestMatcher.withDefaults().matcher("/.well-known/**")));
+    return requestCache;
   }
 
   @Bean
