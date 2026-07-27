@@ -16,10 +16,12 @@
 package com.toedter.spring.mcpserver;
 
 import org.springframework.ai.mcp.annotation.McpTool;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
 @Service
 public class QuoteService {
+  @PreAuthorize("hasAuthority('SCOPE_mcp.tools')")
   @McpTool(
       name = "get_kais_favorite_movie_quote",
       description = "Get Kai’s favorite movie quote.",
