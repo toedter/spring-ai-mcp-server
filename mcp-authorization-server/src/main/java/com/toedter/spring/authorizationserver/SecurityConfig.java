@@ -15,6 +15,7 @@ import org.springframework.security.web.savedrequest.RequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher;
 import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -67,16 +68,18 @@ public class SecurityConfig {
 
   /**
    * Chrome periodically probes /.well-known/appspecific/com.chrome.devtools.json when DevTools is
-   * open. If that request hits an unauthenticated session, the default request cache saves it and
-   * redirects there after login instead of back to the real OAuth2 authorization request. Exclude
-   * it (and any other well-known path) from being cached.
+   * open, and browsers request /favicon.ico on every navigation. If either request hits an
+   * unauthenticated session, the default request cache saves it and redirects there after login
+   * instead of back to the real OAuth2 authorization request. Exclude both from being cached.
    */
   @Bean
   public RequestCache requestCache() {
     HttpSessionRequestCache requestCache = new HttpSessionRequestCache();
     requestCache.setRequestMatcher(
         new NegatedRequestMatcher(
-            PathPatternRequestMatcher.withDefaults().matcher("/.well-known/**")));
+            new OrRequestMatcher(
+                PathPatternRequestMatcher.withDefaults().matcher("/.well-known/**"),
+                PathPatternRequestMatcher.withDefaults().matcher("/favicon.ico"))));
     return requestCache;
   }
 
