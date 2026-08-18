@@ -44,7 +44,7 @@ spring:
       base-url: https://api.siemens.com/llm
       chat:
         options:
-          model: qwen-3.6-27b
+          model: gpt-oss-120b
           temperature: 0.7
           additional-model-request-fields:
             chat_template_kwargs:
