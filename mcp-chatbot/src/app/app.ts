@@ -83,7 +83,7 @@ export class App {
     "What's the weather in Munich?",
     "What's the weather in Munich in Fahrenheit?",
     'Which movies of director Christopher Nolan are in the IMDB top 5?',
-    'Show me the mcp server token.',
+    'Show me the JSON of the mcp server token.',
   ];
 
   /** Pretty-printed arguments for the approval dialog. */
