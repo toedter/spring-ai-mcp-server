@@ -77,6 +77,14 @@ export class App {
   /** Reference to the deep-chat host element, used to fill its text input. */
   private readonly chatRef = viewChild<ElementRef<HTMLElement>>('chatRef');
 
+  /**
+   * Identifies this chat session to the mcp-client backend so it can keep
+   * conversation history (see ChatController/ChatMemory) across multiple
+   * messages. Generated once when the app loads; a page reload starts a
+   * fresh conversation.
+   */
+  private readonly conversationId = crypto.randomUUID();
+
   /** Sample questions the user can pick to fill the message input. */
   protected readonly sampleQuestions: string[] = [
     "Which movie is Kai's favorite quote from?",
@@ -299,7 +307,7 @@ export class App {
       const response = await this.authFetch(MCP_CHAT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...(body as object), conversationId: this.conversationId }),
       });
 
       if (!response.ok || !response.body) {

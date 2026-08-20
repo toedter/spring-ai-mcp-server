@@ -10,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.api.Advisor;
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.test.web.servlet.MockMvc;
@@ -27,6 +29,7 @@ class ChatControllerTest {
 
     var requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
     when(requestSpec.user(any(String.class))).thenReturn(requestSpec);
+    when(requestSpec.advisors(any(java.util.function.Consumer.class))).thenReturn(requestSpec);
     when(requestSpec.call()).thenReturn(callResponseSpec);
 
     var chatClient = mock(ChatClient.class);
@@ -34,6 +37,7 @@ class ChatControllerTest {
 
     var builderWithSystem = mock(ChatClient.Builder.class);
     when(builderWithSystem.defaultTools(any(Object[].class))).thenReturn(builderWithSystem);
+    when(builderWithSystem.defaultAdvisors(any(Advisor[].class))).thenReturn(builderWithSystem);
     when(builderWithSystem.build()).thenReturn(chatClient);
 
     chatClientBuilder = mock(ChatClient.Builder.class);
@@ -42,8 +46,10 @@ class ChatControllerTest {
     ToolCallbackProvider tools = mock(ToolCallbackProvider.class);
     when(tools.getToolCallbacks()).thenReturn(new ToolCallback[0]);
 
+    ChatMemory chatMemory = mock(ChatMemory.class);
+
     ChatController controller =
-        new ChatController(chatClientBuilder, tools, new ApprovalRegistry());
+        new ChatController(chatClientBuilder, tools, new ApprovalRegistry(), chatMemory);
     mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
   }
 

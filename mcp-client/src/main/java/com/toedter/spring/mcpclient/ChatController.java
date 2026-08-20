@@ -5,6 +5,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.http.MediaType;
@@ -27,9 +29,17 @@ import reactor.core.scheduler.Schedulers;
  * /api/chat/approve}. Once approved, the weather tool additionally pauses for an {@code
  * elicitation} event if no temperature unit was specified, resolved via {@code
  * /api/chat/elicitation-decision} (see {@link TemperatureUnitElicitationToolCallback}).
+ *
+ * <p>Conversation history is kept per {@code conversationId} (sent by the browser with every
+ * request, see {@link DeepChatRequest#conversationId()}) using Spring AI's {@link
+ * MessageChatMemoryAdvisor}, so the model remembers earlier turns of the same chat session instead
+ * of treating every message in isolation.
  */
 @RestController
 public class ChatController {
+  /** Conversation id used when the caller doesn't supply one (e.g. plain API calls/tests). */
+  private static final String DEFAULT_CONVERSATION_ID = "default";
+
   private final ChatClient chatClient;
   private final ApprovalRegistry approvalRegistry;
   private final ObjectMapper objectMapper = new ObjectMapper();
@@ -37,7 +47,8 @@ public class ChatController {
   public ChatController(
       ChatClient.Builder chatClientBuilder,
       ToolCallbackProvider tools,
-      ApprovalRegistry approvalRegistry) {
+      ApprovalRegistry approvalRegistry,
+      ChatMemory chatMemory) {
     this.approvalRegistry = approvalRegistry;
     // Wrap every MCP tool so it requires user approval before executing; the
     // weather tool is further wrapped so it asks for a preferred temperature
@@ -56,8 +67,8 @@ public class ChatController {
                     + " weather tools, only supply a temperature unit argument if the user has"
                     + " explicitly told you which unit (celsius or fahrenheit) they prefer;"
                     + " otherwise omit that argument so the application can ask the user.")
-
             .defaultTools(guardedTools)
+            .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
             .build();
   }
 
@@ -68,7 +79,12 @@ public class ChatController {
     }
     CurrentUserToken.set(extractUserAccessToken());
     try {
-      return this.chatClient.prompt().user(message).call().content();
+      return this.chatClient
+          .prompt()
+          .user(message)
+          .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, DEFAULT_CONVERSATION_ID))
+          .call()
+          .content();
     } finally {
       CurrentUserToken.clear();
     }
@@ -80,7 +96,13 @@ public class ChatController {
     String message = request.lastUserMessage();
     CurrentUserToken.set(extractUserAccessToken());
     try {
-      String answer = this.chatClient.prompt().user(message).call().content();
+      String answer =
+          this.chatClient
+              .prompt()
+              .user(message)
+              .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, request.conversationIdOrDefault()))
+              .call()
+              .content();
       return Map.of("text", answer == null ? "" : answer);
     } finally {
       CurrentUserToken.clear();
@@ -106,13 +128,20 @@ public class ChatController {
     // below runs on a boundedElastic worker thread where Spring Security's
     // SecurityContextHolder is not propagated.
     String userAccessToken = extractUserAccessToken();
+    String conversationId = request.conversationIdOrDefault();
     Schedulers.boundedElastic()
         .schedule(
             () -> {
               ToolApprovalContext.set(session);
               CurrentUserToken.set(userAccessToken);
               try {
-                String answer = this.chatClient.prompt().user(message).call().content();
+                String answer =
+                    this.chatClient
+                        .prompt()
+                        .user(message)
+                        .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
+                        .call()
+                        .content();
                 streamWords(sink, answer == null ? "" : answer);
                 sink.tryEmitComplete();
               } catch (Exception e) {
@@ -181,13 +210,24 @@ public class ChatController {
     return null;
   }
 
-  /** Request payload sent by the deep-chat component. */
-  public record DeepChatRequest(List<Message> messages) {
+  /**
+   * Request payload sent by the deep-chat component. {@code conversationId} identifies the browser
+   * chat session (generated once per page load, see {@code app.ts}) so the server can look up the
+   * right chat-memory bucket; when absent (e.g. direct API calls), {@link #DEFAULT_CONVERSATION_ID}
+   * is used instead.
+   */
+  public record DeepChatRequest(List<Message> messages, String conversationId) {
     String lastUserMessage() {
       if (messages == null || messages.isEmpty()) {
         return null;
       }
       return messages.get(messages.size() - 1).text();
+    }
+
+    String conversationIdOrDefault() {
+      return conversationId == null || conversationId.isBlank()
+          ? DEFAULT_CONVERSATION_ID
+          : conversationId;
     }
   }
 
