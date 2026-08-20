@@ -29,7 +29,7 @@ allprojects {
 	}
 
 	ext {
-		set('springAiVersion', "2.0.0")
+		set('springAiVersion', "2.0.1")
 	}
 
 	tasks.withType(JavaExec) {
