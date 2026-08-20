@@ -69,7 +69,9 @@ public class WeatherService {
       @McpToolParam(
               required = false,
               description =
-                  "Preferred temperature unit: \"celsius\" or \"fahrenheit\". Defaults to celsius.")
+                  "Preferred temperature unit: \"celsius\" or \"fahrenheit\". Only set this if the"
+                      + " user has explicitly stated a preferred unit in the conversation; otherwise"
+                      + " omit this parameter entirely and let the caller decide.")
           String unit) {
 
     if (latitude < -90 || latitude > 90) {

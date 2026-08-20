@@ -51,7 +51,12 @@ public class ChatController {
             .toList();
     this.chatClient =
         chatClientBuilder
-            .defaultSystem("You are a friendly assistant that can use tools when needed.")
+            .defaultSystem(
+                "You are a friendly assistant that can use tools when needed. When calling"
+                    + " weather tools, only supply a temperature unit argument if the user has"
+                    + " explicitly told you which unit (celsius or fahrenheit) they prefer;"
+                    + " otherwise omit that argument so the application can ask the user.")
+
             .defaultTools(guardedTools)
             .build();
   }
